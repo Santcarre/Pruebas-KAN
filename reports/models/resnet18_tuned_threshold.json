@@ -1,0 +1,13 @@
+{
+  "model_path": "G:/Cosas_programacion/Breast Cancer Interpretable-ml/reports/models/resnet18_tuned_best.pt",
+  "selected_threshold": 0.3216007351875305,
+  "target_recall": 0.8,
+  "test_auc": 0.6989015572858731,
+  "metrics_at_threshold": {
+    "threshold": 0.3216007351875305,
+    "accuracy": 0.6255924170616114,
+    "precision_malignant": 0.5303030303030303,
+    "recall_malignant": 0.8045977011494253,
+    "f1_malignant": 0.639269406392694
+  }
+}

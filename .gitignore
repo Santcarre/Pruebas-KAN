@@ -1,0 +1,11 @@
+*
+!.gitignore
+!notebooks/
+!notebooks/**
+!reports/
+!reports/**
+!scripts/
+!scripts/**
+# Excluir artefactos generados dentro de notebooks
+notebooks/figures/
+notebooks/model/
