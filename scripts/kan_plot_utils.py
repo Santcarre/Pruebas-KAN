@@ -1,4 +1,18 @@
-﻿from __future__ import annotations
+"""
+Visualización ligera de aristas/splines KAN tras cachear activaciones.
+
+Compatible con PyKAN >= 0.2.x (API `get_act`).
+
+Uso correcto:
+    # 1. Ejecutar forward
+    out = model(x)
+    # 2. Cachear activaciones con get_act
+    model.get_act(x)
+    # 3. Llamar a las funciones de este módulo
+    plot_kan_edges_light(model, layer=0)
+"""
+
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -25,7 +39,11 @@ def estimate_kan_plot_load(model) -> list[dict[str, int]]:
 
 def _cached_edge_pairs(model, layer: int, top_k: int, metric: str = "mean_abs") -> list[tuple[int, int]]:
     if getattr(model, "spline_postacts", None) is None:
-        raise RuntimeError("No cached spline activations found. Run a forward pass with save_act=True first.")
+        raise RuntimeError(
+            "No cached spline activations found. "
+            "Run model.get_act(x) after a forward pass. "
+            "(PyKAN >= 0.2.x: save_act=True ya no existe en forward())"
+        )
 
     spline_postacts = model.spline_postacts[layer]
     if metric == "mean_abs":
@@ -55,7 +73,11 @@ def plot_kan_edges_light(
     figsize_scale: float = 1.0,
 ):
     if getattr(model, "acts", None) is None or getattr(model, "spline_postacts", None) is None:
-        raise RuntimeError("KAN activations are not cached. Run a forward pass with save_act=True first.")
+        raise RuntimeError(
+            "KAN activations are not cached. "
+            "Run model.get_act(x) after a forward pass. "
+            "(PyKAN >= 0.2.x: save_act=True ya no existe en forward())"
+        )
 
     pairs = _cached_edge_pairs(model, layer=layer, top_k=top_k, metric=metric)
     rows = (len(pairs) + cols - 1) // cols

@@ -1,13 +1,17 @@
+"""
+Construye manifiestos CSV (train/test/all) a partir de los CSV de CBIS-DDSM y las rutas JPEG locales.
+
+Ejecutar desde la raíz del repo:
+    python scripts/build_resnet18_manifest.py
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
+
 import pandas as pd
 
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-RAW_CSV_DIR = ROOT_DIR / "src/data/raw/csv"
-RAW_JPEG_DIR = ROOT_DIR / "src/data/raw/jpeg"
-OUT_DIR = ROOT_DIR / "src/data/processed"
+from paths import MANIFEST_ALL, MANIFEST_TEST, MANIFEST_TRAIN, PROCESSED_DIR, RAW_CSV_DIR, RAW_JPEG_DIR
 
 CASE_FILES = [
     ("calc", "train", RAW_CSV_DIR / "calc_case_description_train_set.csv"),
@@ -85,20 +89,20 @@ def build_manifest() -> pd.DataFrame:
 
 
 def main() -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
     all_manifest = build_manifest()
     train_manifest = all_manifest[all_manifest["split"].eq("train")].copy()
     test_manifest = all_manifest[all_manifest["split"].eq("test")].copy()
 
-    all_manifest.to_csv(OUT_DIR / "manifest_all.csv", index=False)
-    train_manifest.to_csv(OUT_DIR / "manifest_train.csv", index=False)
-    test_manifest.to_csv(OUT_DIR / "manifest_test.csv", index=False)
+    all_manifest.to_csv(MANIFEST_ALL, index=False)
+    train_manifest.to_csv(MANIFEST_TRAIN, index=False)
+    test_manifest.to_csv(MANIFEST_TEST, index=False)
 
     print("Saved:")
-    print(f"  - {(OUT_DIR / 'manifest_all.csv').as_posix()}")
-    print(f"  - {(OUT_DIR / 'manifest_train.csv').as_posix()}")
-    print(f"  - {(OUT_DIR / 'manifest_test.csv').as_posix()}")
+    print(f"  - {MANIFEST_ALL.as_posix()}")
+    print(f"  - {MANIFEST_TRAIN.as_posix()}")
+    print(f"  - {MANIFEST_TEST.as_posix()}")
 
     print("\nCounts by split and label:")
     print(all_manifest.groupby(["split", "label_name"]).size())

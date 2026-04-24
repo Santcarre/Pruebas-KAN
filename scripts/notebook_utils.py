@@ -1,4 +1,17 @@
-﻿from __future__ import annotations
+"""
+Utilidades compartidas por los notebooks: semilla, dispositivo, dataset de mamografías,
+transforms ImageNet, pesos de clase, umbral por recall y métricas binarias seguras.
+
+Importación típica desde un notebook en `notebooks/`:
+
+    import sys
+    from pathlib import Path
+    ROOT = Path.cwd().resolve().parent if Path.cwd().name == "notebooks" else Path.cwd().resolve()
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import notebook_utils as nu
+"""
+
+from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
@@ -169,3 +182,87 @@ def safe_binary_metrics(
         y_prob = np.asarray(y_prob)
         metrics["auc"] = float(roc_auc_score(y_true, y_prob)) if len(np.unique(y_true)) > 1 else float("nan")
     return metrics
+
+
+def build_resnet18_backbone(model_path: Path, device):
+    """Carga ResNet-18 tuneado y devuelve solo el backbone (sin cabeza fc).
+
+    El backbone devuelve embeddings de 512 dimensiones via GlobalAveragePooling.
+
+    Args:
+        model_path: Ruta al .pt guardado con state_dict del ResNet-18 completo
+                    (incluyendo fc de 2 salidas).
+        device:     torch.device donde cargar el modelo.
+
+    Returns:
+        nn.Sequential en modo eval con requires_grad=False.
+    """
+    if torch is None:
+        raise ModuleNotFoundError("torch es necesario para cargar el backbone")
+    from torchvision import models
+    import torch.nn as nn
+
+    full = models.resnet18(weights=None)
+    full.fc = nn.Linear(full.fc.in_features, 2)
+    full.load_state_dict(torch.load(model_path, map_location=device))
+    backbone = nn.Sequential(*list(full.children())[:-1])  # quita fc
+    backbone = backbone.to(device).eval()
+    for p in backbone.parameters():
+        p.requires_grad = False
+    return backbone
+
+
+def extract_and_normalize_embeddings(
+    backbone,
+    loaders: "dict[str, object]",
+    device,
+    norm_stats: "tuple | None" = None,
+) -> "tuple[dict[str, tuple], tuple]":
+    """Extrae embeddings con el backbone y los normaliza por z-score.
+
+    Los embeddings se extraen en `device` y se devuelven en CPU.
+    La normalización (μ, σ) se calcula sobre el split 'train' y se aplica
+    al resto de splits para evitar data leakage.
+
+    Args:
+        backbone:    Modelo backbone (output: [B, 512, 1, 1] o [B, 512]).
+        loaders:     Dict {'train': loader, 'val': loader, 'test': loader}.
+                     El split 'train' DEBE estar presente.
+        device:      torch.device para la inferencia.
+        norm_stats:  Si se pasa (mu, sigma) como tensores, se usan en lugar
+                     de calcularlos desde 'train'. Útil para reproducir la
+                     normalización exacta en notebooks de interpretabilidad.
+
+    Returns:
+        embeddings:  Dict {'train': (X, y), 'val': (X, y), 'test': (X, y)}
+                     con tensores en CPU ya normalizados.
+        (mu, sigma): Tensores de normalización (en CPU). Guardables con
+                     torch.save({'mu': mu, 'sigma': sigma}, path).
+    """
+    if torch is None:
+        raise ModuleNotFoundError("torch es necesario para extraer embeddings")
+
+    raw: "dict[str, tuple]" = {}
+    for split, loader in loaders.items():
+        Xs, ys = [], []
+        with torch.no_grad():
+            for batch in loader:
+                x, y = batch[0], batch[1]
+                x = x.to(device)
+                z = backbone(x).flatten(1)
+                Xs.append(z.cpu())
+                ys.append(y.cpu())
+        raw[split] = (torch.cat(Xs, 0), torch.cat(ys, 0))
+
+    if norm_stats is not None:
+        mu, sigma = norm_stats
+    else:
+        Xtr = raw["train"][0]
+        mu = Xtr.mean(0, keepdim=True)
+        sigma = Xtr.std(0, keepdim=True).clamp_min(1e-6)
+
+    embeddings: "dict[str, tuple]" = {}
+    for split, (X, y) in raw.items():
+        embeddings[split] = ((X - mu) / sigma, y)
+
+    return embeddings, (mu, sigma)

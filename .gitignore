@@ -1,11 +1,78 @@
+# =====================================================================
+# .gitignore — Breast Cancer Interpretable ML
+# Estrategia: whitelist (todo ignorado excepto lo listado explícitamente)
+# =====================================================================
+
+# Ignorar todo por defecto
 *
+
+# --- Archivos raíz ---
 !.gitignore
-!notebooks/
-!notebooks/**
-!reports/
-!reports/**
+!requirements.txt
+!README.md
+
+# --- Código fuente ---
 !scripts/
 !scripts/**
-# Excluir artefactos generados dentro de notebooks
-notebooks/figures/
+!src/
+!src/**
+
+# --- Notebooks (rastreados) ---
+!notebooks/
+!notebooks/**
+
+# --- Experimentos (rastreados) ---
+!Prueba_emmbedings/
+!Prueba_emmbedings/**
+
+# --- Reports (rastreados, excepto artefactos grandes) ---
+!reports/
+!reports/**
+
+# =====================================================================
+# EXCLUSIONES dentro de las carpetas rastreadas
+# =====================================================================
+
+# Checkpoints de Jupyter
+**/.ipynb_checkpoints/
+**/.ipynb_checkpoints/**
+
+# Cachés de Python
+**/__pycache__/
+**/__pycache__/**
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# Artefactos generados por entrenamiento (modelos grandes)
 notebooks/model/
+notebooks/model/**
+**/*.pt
+**/*.pth
+**/*.ckpt
+**/*.pkl
+**/*.bin
+**/*.safetensors
+
+# Figuras generadas automáticamente (miles de splines KAN)
+notebooks/figures/
+notebooks/figures/**
+
+# Artefactos de experimentos locales
+Prueba_emmbedings/artifacts/
+Prueba_emmbedings/artifacts/**
+
+# Datos brutos y procesados (no subir al repo — ver README.md para descarga)
+src/data/
+src/data/**
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+.env/
+
+# IDEs y editores
+.vscode/
+.idea/
+*.code-workspace
