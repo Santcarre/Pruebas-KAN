@@ -1,0 +1,431 @@
+% !TEX program = pdflatex
+% Compilación sugerida: pdflatex presentacion.tex (dos veces para referencias)
+% Requiere: beamer, babel spanish, fonts estándar TeX Live / MiKTeX
+
+\documentclass[aspectratio=169,spanish]{beamer}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{csquotes}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{tikz}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+
+\title{CBIS-DDSM y pipeline interpretable}
+\subtitle{ResNet-18, KAN y flujo de notebooks}
+\author{Tesis — Interpretabilidad en mamografías}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Índice}
+  \tableofcontents
+\end{frame}
+
+\begin{frame}{Nota sobre las cifras numéricas}
+  \small
+  Las métricas que siguen provienen de las \textbf{salidas guardadas} en los notebooks del repositorio (última ejecución registrada). Si vuelves a entrenar con otra semilla, hardware o datos, los valores pueden cambiar; la interpretación cualitativa del flujo se mantiene.
+\end{frame}
+
+\section{Base de datos: CBIS-DDSM}
+
+\begin{frame}{Qué es CBIS-DDSM}
+  \begin{itemize}
+    \item Subconjunto \textbf{curado} del DDSM: mamografías para investigación en detección y diagnóstico asistido.
+    \item En este proyecto se usan:
+      \begin{itemize}
+        \item \textbf{CSV} de descripción de casos (masas y calcificaciones) y metadatos DICOM.
+        \item \textbf{Imágenes JPEG} de mamografías completas alineadas con esas tablas.
+      \end{itemize}
+    \item Tarea: clasificación \textbf{binaria} BENIGNO / MALIGNO a partir de imágenes de \textbf{mamografía completa} (vista acordada con el manifiesto).
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Estructura local y manifiestos}
+  \begin{itemize}
+    \item \texttt{src/data/raw/csv/} — tablas oficiales (\texttt{calc\_*}, \texttt{mass\_*}, \texttt{dicom\_info.csv}, etc.).
+    \item \texttt{src/data/raw/jpeg/} — imágenes descargadas.
+    \item \texttt{scripts/build\_resnet18\_manifest.py} $\rightarrow$ \texttt{manifest\_\{train,test,all\}.csv} en \texttt{src/data/processed/}.
+    \item Split por \textbf{\texttt{patient\_id}} en train/val para limitar fugas; hold-out de test fijado por el manifiesto.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{EDA (\texttt{00\_eda}) — volúmenes típicos en CSV}
+  Ejemplos de filas en tablas crudas (según ejecución del notebook):
+  \begin{itemize}
+    \item \texttt{calc\_case\_description\_test\_set.csv}: $\sim$326 filas $\times$ 14 columnas.
+    \item \texttt{mass\_case\_description\_test\_set.csv}: $\sim$378 filas (otra ejecución muestra $\sim$1318 en conjunto train).
+    \item \texttt{dicom\_info.csv}: del orden de $10^4$ filas (metadatos por series/imagen).
+  \end{itemize}
+  \vspace{0.4em}
+  Tras el manifiesto, el conjunto de \textbf{test} usado en los modelos es de \textbf{422} casos: 248 BENIGN y 174 MALIGNANT (proporción coherente en varios notebooks).
+\end{frame}
+
+\begin{frame}{Distribución de clases en test (422 casos)}
+  \begin{columns}[T]
+    \column{0.5\textwidth}
+    \small
+    \begin{tabular}{@{}lrr@{}}
+      \toprule
+      Clase & Casos & Proporción \\
+      \midrule
+      BENIGN    & 248 & 58{,}8\% \\
+      MALIGNANT & 174 & 41{,}2\% \\
+      \bottomrule
+    \end{tabular}
+
+    \vspace{0.6em}
+    \textbf{Lectura:}
+    \begin{itemize}
+      \item Hay desbalance moderado a favor de BENIGN.
+      \item Accuracy sola no basta: conviene mirar recall de MALIGNANT.
+    \end{itemize}
+
+    \column{0.5\textwidth}
+    \centering
+    \begin{tikzpicture}[x=0.020cm,y=0.055cm]
+      \draw[->] (0,0) -- (280,0) node[right] {\scriptsize casos};
+      \fill[blue!45] (0,10) rectangle (248,34);
+      \fill[red!45]  (0,45) rectangle (174,69);
+      \node[anchor=center] at (124,22) {\tiny BENIGN (248)};
+      \node[anchor=center] at (87,57) {\tiny MALIGNANT (174)};
+    \end{tikzpicture}
+\end{columns}
+\end{frame}
+
+\section{Pipeline \texttt{notebooks/} — una vista por notebook}
+
+\begin{frame}{\texttt{00\_eda.ipynb}}
+  \textbf{Objetivo:} inspección exploratoria de CSV (patología, vistas, rutas a ficheros).
+  \begin{itemize}
+    \item Carga de \texttt{calc\_*} y \texttt{mass\_*} en train/test y metadatos DICOM.
+    \item Comprobación de columnas clave: \texttt{pathology}, rutas de imagen, identificadores de paciente.
+    \item Base para confiar en que el script de manifiesto y los loaders ven datos alineados.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{01\_resnet18\_pipeline.ipynb} — baseline ImageNet}
+  \textbf{Setup:} ResNet-18, cabeza binaria, mismo split test que el resto del proyecto (422 imágenes).
+  \begin{block}{Resultados (test, umbral 0{,}5 en \texttt{argmax})}
+    \centering
+    \small
+    \begin{tabular}{@{}lcc@{}}
+      \toprule
+       & BENIGN & MALIGNANT \\
+      \midrule
+      Precision & 0{,}66 & 0{,}50 \\
+      Recall    & 0{,}60 & 0{,}56 \\
+      \bottomrule
+    \end{tabular}
+
+    \vspace{0.3em}
+    Accuracy global $\approx$ \textbf{0{,}59}. Matriz de confusión (filas = verdadero): $\begin{pmatrix}149&99\\76&98\end{pmatrix}$.
+  \end{block}
+  Punto de partida antes de fine-tuning agresivo ni KAN.
+\end{frame}
+
+\begin{frame}{\texttt{02\_resnet18\_tuned.ipynb}}
+  \textbf{Objetivo:} fine-tuning en dos fases (cabeza $\rightarrow$ backbone+cabeza), pesos de clase, early stopping por AUC en validación.
+  \begin{itemize}
+    \item Mejor \textbf{AUC en validación}: \textbf{0{,}7168} (época destacada en P2).
+    \item \textbf{Evaluación en test} (mejor checkpoint según val):
+      \begin{itemize}
+        \item AUC = \textbf{0{,}6989}, accuracy $\approx$ \textbf{0{,}642}, recall MALIGNANT $\approx$ \textbf{0{,}615}.
+        \item Matriz de confusión: $\begin{pmatrix}164&84\\67&107\end{pmatrix}$.
+      \end{itemize}
+    \item Checkpoint guardado p.\,ej.\ \texttt{resnet18\_tuned\_best.pt} para embeddings y etapas posteriores.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{03\_resnet18\_thresholding.ipynb}}
+  \textbf{Objetivo:} elegir umbral en probabilidad de MALIGNO distinto de 0{,}5 según restricción de recall clínico.
+  \begin{itemize}
+    \item \textbf{Test AUC} del modelo calibrado en score: \textbf{0{,}6989} (coherente con el notebook 02).
+    \item Umbral seleccionado (ejemplo de salida): \textbf{0{,}3216}.
+    \item A ese umbral: precisión MALIGNANT $\approx$ \textbf{0{,}53}, recall MALIGNANT $\approx$ \textbf{0{,}80}, $F_1 \approx$ \textbf{0{,}64}.
+    \item Comparación con 0{,}5: mayor recall de malignos a costa de precisión; configuración exportada a JSON bajo \texttt{reports/models/}.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Impacto del umbral en MALIGNANT}
+  \small
+  \begin{tabular}{@{}lcccc@{}}
+    \toprule
+    Umbral & Accuracy & Precision mal. & Recall mal. & $F_1$ mal. \\
+    \midrule
+    0{,}50   & 0{,}642 & 0{,}560 & 0{,}615 & 0{,}586 \\
+    0{,}3216 & 0{,}626 & 0{,}530 & 0{,}805 & 0{,}639 \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.7em}
+  \textbf{Cómo interpretar la tabla:}
+  \begin{itemize}
+    \item Al bajar el umbral, sube el recall de malignos (menos falsos negativos).
+    \item Se sacrifica algo de precisión y accuracy global, pero mejora el $F_1$ de MALIGNANT.
+    \item Para un escenario clínico de cribado, esta dirección suele ser preferible.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{04\_resnet18\_kan\_fast.ipynb} — lineal vs KAN sobre embeddings}
+  Embeddings 512-D del ResNet afinado; cabeza lineal y KAN con capas $512\to16\to2$ entrenadas con early stopping por AUC en val.
+  \begin{block}{Test (última corrida registrada)}
+    \centering
+    \small
+    \begin{tabular}{@{}lcccc@{}}
+      \toprule
+      Cabeza & Acc & AUC & Rec.\ mal.\ & $F_1$ mal.\ \\
+      \midrule
+      Lineal & 0{,}604 & \textbf{0{,}702} & 0{,}851 & 0{,}639 \\
+      KAN    & 0{,}609 & \textbf{0{,}695} & 0{,}845 & 0{,}641 \\
+      \bottomrule
+    \end{tabular}
+  \end{block}
+  En esta ejecución el lineal ganó ligeramente en AUC; la KAN prioriza forma funcional interpretable frente a solo ganancia puntual de AUC.
+\end{frame}
+
+\begin{frame}{Comparativa visual de AUC (test)}
+  \centering
+  \begin{tikzpicture}[x=12cm,y=4.6cm]
+    % Ejes
+    \draw[->] (0,0) -- (0,0.80) node[above] {\scriptsize AUC};
+    \draw[->] (0,0) -- (1.05,0);
+    \draw[densely dotted] (0,0.70) -- (1.0,0.70);
+    \node[anchor=east] at (0,0.70) {\scriptsize 0.70};
+    % Barras
+    \fill[blue!50] (0.18,0) rectangle (0.42,0.7022);
+    \fill[green!50!black] (0.62,0) rectangle (0.86,0.6949);
+    \node[anchor=north] at (0.30,-0.02) {\scriptsize Lineal};
+    \node[anchor=north] at (0.74,-0.02) {\scriptsize KAN};
+    \node[anchor=south] at (0.30,0.7022) {\scriptsize 0.702};
+    \node[anchor=south] at (0.74,0.6949) {\scriptsize 0.695};
+  \end{tikzpicture}
+
+  \vspace{0.6em}
+  \small
+  \textbf{Lectura:} en esta corrida, lineal gana levemente en AUC; KAN mantiene desempeño cercano y aporta estructura interpretable para análisis simbólico.
+\end{frame}
+
+\begin{frame}{\texttt{05\_kan\_head\_train.ipynb}}
+  Entrenamiento prolongado del cabezal KAN (arquitectura $512\to32\to2$, grid mayor) con backbone \textbf{congelado}.
+  \begin{itemize}
+    \item Mejor \textbf{AUC en validación}: \textbf{0{,}7198} (meseta alrededor de épocas 24--32).
+    \item \textbf{Test con umbral 0{,}5:} AUC = \textbf{0{,}693}, acc = \textbf{0{,}647}, recall MALIGNANT = \textbf{0{,}747}.
+    \item Con umbral ajustado por recall objetivo: recall MALIGNANT $\approx$ \textbf{0{,}810}; precisión $\approx$ \textbf{0{,}540} (misma AUC). Modelo guardado para interpretabilidad en el notebook \texttt{07}.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{06\_end2end\_train.ipynb}}
+  Modelo híbrido ResNet-18 + KAN en el mismo grafo; fases con actualización opcional de rejilla de splines.
+  \begin{itemize}
+    \item Entrenamiento largo puede requerir desactivar o limitar \texttt{update\_grid\_from\_samples} según versión de PyKAN/GPU.
+    \item Paso opcional \textbf{LBFGS} sobre la KAN (ejemplo en salida): tras 5 pasos, val AUC $\approx$ \textbf{0{,}645} (no siempre mejora respecto al mejor Adam).
+    \item \textbf{Test con checkpoint híbrido cargado} (salida registrada): acc \textbf{0{,}578}, AUC \textbf{0{,}636}, recall MALIGNANT \textbf{0{,}638}, $F_1$ mal.\ \textbf{0{,}555}.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{07\_kan\_head\_interpretability.ipynb}}
+  Carga del cabezal KAN entrenado en \texttt{05}; análisis cualitativo:
+  \begin{itemize}
+    \item \texttt{plot()}, importancia de aristas, \texttt{suggest\_symbolic} / \texttt{auto\_symbolic} sobre splines.
+    \item Métricas de verificación al cargar pesos: AUC en test coherente con \textbf{$\sim$0{,}69} (mismo orden que el cabezal entrenado).
+    \item Objetivo: traducir patrones en el espacio de embeddings a funciones explícitas y poda de aristas poco relevantes.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{08\_end2end\_interpretability.ipynb}}
+  Híbrido end-to-end + herramientas de explicación en imagen y latente.
+  \begin{itemize}
+    \item \textbf{Val / Test} (ejemplo de salida): AUC val $\approx$ \textbf{0{,}680}, AUC test $\approx$ \textbf{0{,}635}; informe de clasificación por clase en test.
+    \item \textbf{Sproud} (selección de aristas): del orden de \textbf{6 dimensiones latentes} únicas entre las aristas más influyentes.
+    \item Integración con Captum (Integrated Gradients) sobre la entrada imagen; tabla simbólica + \texttt{symbolic\_formula()} cuando la versión de PyKAN lo permite.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Tabla guía: lectura de matriz de confusión}
+  \small
+  Ejemplo (\texttt{02\_resnet18\_tuned.ipynb}, test):\quad
+  $\begin{pmatrix}
+  164 & 84\\
+  67 & 107
+  \end{pmatrix}$
+
+  \vspace{0.7em}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    Celda & Interpretación \\
+    \midrule
+    164 (arriba izq.) & BENIGN bien clasificados (TN) \\
+    84 (arriba der.) & BENIGN etiquetados como MALIGNANT (FP) \\
+    67 (abajo izq.) & MALIGNANT perdidos como BENIGN (FN) \\
+    107 (abajo der.) & MALIGNANT detectados correctamente (TP) \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.7em}
+  \textbf{Mensaje clave:} en salud, minimizar FN (67) suele ser prioritario; por eso el ajuste de umbral busca subir recall de MALIGNANT.
+\end{frame}
+
+\section{Experimento \texttt{Prueba\_emmbedings/}}
+
+\begin{frame}{\texttt{01\_extract\_embeddings.ipynb}}
+  Extracción de vectores 512-D con el ResNet afinado y splits alineados al manifiesto.
+  \begin{itemize}
+    \item Conteos típicos: Train \textbf{2315}, Val \textbf{549}, Test \textbf{422}.
+    \item Embeddings y normalización guardados para entrenar la KAN fuera del bucle CNN (estabilidad en GPU).
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{02\_train\_kan\_on\_embeddings.ipynb}}
+  KAN sobre embeddings con \textbf{PCA al 95\,\%} de varianza en train (ejemplo: \textbf{252} componentes en lugar de 512).
+  \begin{itemize}
+    \item Curva de entrenamiento: AUC en val sube hasta $\sim$\textbf{0{,}679} alrededor de la época 34.
+    \item \textbf{Test} (umbral elegido por recall en val): AUC \textbf{0{,}640}, acc \textbf{0{,}552}, recall MALIGNANT \textbf{0{,}833}, umbral $\approx$ \textbf{0{,}357}.
+    \item Artefactos: \texttt{pca\_payload.pt}, cargas interpretables en CSV.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{\texttt{03\_sproud\_symbolic\_report.ipynb}}
+  Pipeline Sproud $\rightarrow$ ajuste simbólico arista a arista $\rightarrow$ \texttt{symbolic\_formula()}.
+  \begin{itemize}
+    \item Salidas típicas: \texttt{sproud\_edges.csv}, \texttt{symbolic\_formula.txt}, gráficas de la red/fórmula si matplotlib está disponible.
+    \item Validaciones para evitar ajustes triviales (\texttt{best\_symbolic} vacío, $R^2=0$); posible fallback con \texttt{auto\_symbolic}.
+    \item Complementa el flujo principal: explicación compacta en el espacio PCA + KAN del experimento paralelo.
+  \end{itemize}
+\end{frame}
+
+\section{Mini-proyecto \texttt{Prueba\_red\_KAN}}
+
+\begin{frame}{Objetivo de \texttt{Prueba\_red\_KAN}}
+  \small
+  Proyecto pequeño, aislado y didáctico para validar el flujo de entrenamiento con KAN sin el costo de mamografías:
+  \begin{itemize}
+    \item Dataset: \textbf{MNIST} (10 clases), ejecución en CPU.
+    \item Paso 1 (\texttt{1\_cnn\_extractor.ipynb}): CNN simple para generar embeddings de 16 dimensiones.
+    \item Paso 2 (\texttt{2\_kan\_explainer.ipynb}): entrenamiento KAN sobre embeddings, poda y reemplazo simbólico.
+    \item Resultado: sandbox rápido para entender \emph{cómo entrenar + interpretar} una KAN.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Pipeline técnico del mini-proyecto}
+  \small
+  \begin{tabular}{@{}lp{8.4cm}@{}}
+    \toprule
+    Etapa & Qué se hace \\
+    \midrule
+    1. CNN extractor & Conv(1$\to$16) + Conv(16$\to$32) + MLP; se entrena 1 época sobre MNIST. \\
+    2. Embeddings & Se exportan \texttt{train\_embeddings.pt} y \texttt{test\_embeddings.pt} (16-D). \\
+    3. KAN & Se entrena una KAN sobre embeddings durante 20 épocas. \\
+    4. Poda & \texttt{model.prune()} elimina conexiones poco activas. \\
+    5. Simbólico & \texttt{auto\_symbolic(lib=[...])} + \texttt{symbolic\_formula()} con variables Sympy. \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \textbf{Interpretación:} replica en pequeño la idea central del proyecto principal:
+  extractor profundo $\rightarrow$ modelo KAN $\rightarrow$ ecuaciones interpretables.
+\end{frame}
+
+\begin{frame}{Resultados de entrenamiento KAN en MNIST}
+  \small
+  \begin{tabular}{@{}lcc@{}}
+    \toprule
+    Hito & Valor & Lectura \\
+    \midrule
+    Loss época 1  & 0.6329 & Arranque con error alto \\
+    Loss época 5  & 0.1009 & Mejora rápida del ajuste \\
+    Loss época 10 & 0.0919 & Comienza estabilización \\
+    Loss época 20 & 0.0892 & Convergencia práctica \\
+    Test Accuracy & \textbf{96.98\%} & Buen desempeño con embeddings compactos \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.7em}
+  \textbf{Cómo leer esta tabla:}
+  \begin{itemize}
+    \item La caída fuerte de loss en primeras épocas indica que la KAN aprende rápido sobre embeddings ya informativos.
+    \item Accuracy cercana al 97\% confirma que el flujo extractor+KAN funciona de forma robusta.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Interpretabilidad observada en \texttt{Prueba\_red\_KAN}}
+  \small
+  Evidencia extraída de \texttt{2\_kan\_explainer.ipynb}:
+  \begin{itemize}
+    \item Tras \texttt{auto\_symbolic}, muchas aristas se ajustan con función \texttt{x} y otras se anulan (\texttt{0}); se reportan varios $R^2$ altos (ej. 0.94--0.95 en algunas conexiones).
+    \item Se obtiene fórmula simbólica explícita por clase (ejemplo mostrado en notebook para clase 0 y clase 1), con combinación lineal de \(E_1,\dots,E_{16}\) y un término cuadrático.
+    \item La poda reduce complejidad antes del paso simbólico, mejorando legibilidad de ecuaciones.
+  \end{itemize}
+
+  \vspace{0.5em}
+  \textbf{Conclusión práctica:} este mini-proyecto valida que la estrategia usada en mamografías (embeddings + KAN + simbólico) es técnicamente viable y explicable.
+\end{frame}
+
+\begin{frame}{Fórmulas simbólicas al final de \texttt{2\_kan\_explainer}}
+  \small
+  En el notebook se extraen fórmulas explícitas para clases (ej. clase 0 y clase 1) usando:
+  \begin{itemize}
+    \item \texttt{model.auto\_symbolic(lib=[...])}
+    \item \texttt{formulas = model.symbolic\_formula(var=mis\_variables)[0]}
+  \end{itemize}
+
+  \vspace{0.4em}
+  Ejemplo reportado para clase 0 (abreviado):
+  \[
+  s_0(E)=\sum_{i=1}^{16}\alpha_i E_i + 0.0127(-0.8032E_9-6.3721)^2 - 0.5827
+  \]
+  y para clase 1:
+  \[
+  s_1(E)=\sum_{i=1}^{16}\beta_i E_i - 0.0110(-0.8032E_9-6.3721)^2 - 8.0311
+  \]
+  donde \(E_1,\dots,E_{16}\) son los embeddings de la CNN.
+\end{frame}
+
+\begin{frame}{De fórmula simbólica a probabilidad de clase}
+  \small
+  La interpretación operativa es:
+  \begin{enumerate}
+    \item Se toma un embedding \(E\in\mathbb{R}^{16}\) de una imagen.
+    \item Se evalúan las fórmulas simbólicas de cada clase para obtener \textbf{logits} \(s_k(E)\).
+    \item Se convierten a probabilidades con softmax:
+  \end{enumerate}
+  \[
+  p(y=k\mid E)=\frac{e^{s_k(E)}}{\sum_j e^{s_j(E)}}
+  \]
+
+  \vspace{0.5em}
+  \textbf{Argumento clave para la presentación:}
+  \begin{itemize}
+    \item Para este caso sí se puede usar una fórmula explícita con valores de embeddings.
+    \item Esa fórmula produce un score; al normalizarlo con softmax se obtiene probabilidad alta para la clase más compatible.
+    \item Por eso la KAN no solo clasifica: también deja una regla matemática interpretable y evaluable fuera del modelo.
+  \end{itemize}
+\end{frame}
+
+\section{Cierre}
+
+\begin{frame}{Resumen}
+  \begin{itemize}
+    \item Del CSV masivo al manifiesto: \textbf{422} casos de test consistentes en todo el pipeline.
+    \item CNN afinada: test AUC $\approx$ \textbf{0{,}70}; umbral operativo prioriza \textbf{recall de malignos} ($\sim$80\,\%).
+    \item KAN sobre embeddings y cabezal dedicado: AUC test del orden \textbf{0{,}69--0{,}70}; interpretabilidad vía Sproud/simbólico e IG en \texttt{07}/\texttt{08}.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[allowframebreaks]{Referencias útiles}
+  \begin{itemize}
+    \item \texttt{README.md}, \texttt{Prueba\_emmbedings/README.md}.
+    \item \texttt{scripts/paths.py}, \texttt{scripts/notebook\_utils.py}.
+    \item Dataset CBIS-DDSM (TCIA / licencia de uso).
+  \end{itemize}
+\end{frame}
+
+\end{document}

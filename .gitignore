@@ -25,6 +25,14 @@
 !Prueba_emmbedings/
 !Prueba_emmbedings/**
 
+# --- Mini proyecto KAN (notebooks rastreados) ---
+!Prueba_red_KAN/
+!Prueba_red_KAN/*.ipynb
+
+# --- Presentación (LaTeX) ---
+!presentación/
+!presentación/**
+
 # --- Reports (rastreados, excepto artefactos grandes) ---
 !reports/
 !reports/**
@@ -57,6 +65,15 @@ notebooks/model/**
 # Figuras generadas automáticamente (miles de splines KAN)
 notebooks/figures/
 notebooks/figures/**
+
+# Auxiliares LaTeX (presentación Beamer)
+presentación/*.aux
+presentación/*.log
+presentación/*.nav
+presentación/*.out
+presentación/*.snm
+presentación/*.toc
+presentación/*.synctex.gz
 
 # Artefactos de experimentos locales
 Prueba_emmbedings/artifacts/
